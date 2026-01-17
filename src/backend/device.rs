@@ -139,7 +139,7 @@ impl VulkanDevice {
         
         // Validation layers
         let layer_names = if enable_validation {
-            vec![CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0")?.as_ptr()]
+            vec![c"VK_LAYER_KHRONOS_validation".as_ptr()]
         } else {
             vec![]
         };

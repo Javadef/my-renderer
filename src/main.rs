@@ -1,29 +1,32 @@
 // =============================================================================
-// HIGH-PERFORMANCE VULKAN RENDERER - Learning Project
+// HIGH-PERFORMANCE VULKAN RENDERER - Learning Project with Bevy Integration
 // =============================================================================
 //
 // This renderer demonstrates core Vulkan concepts with extensive comments
-// for learning purposes. Each section explains WHY things are done, not just HOW.
+// for learning purposes, now integrated with Bevy's ECS.
 //
 // ARCHITECTURE OVERVIEW:
 // ┌─────────────────────────────────────────────────────────────────┐
-// │  Window (winit)                                                 │
-// │    └── Surface (platform-specific window connection)            │
-// │          └── Swapchain (double/triple buffered images)          │
+// │  Bevy App (ECS, Assets, Input, Time)                            │
+// │    └── Custom Vulkan Renderer Plugin                            │
+// │          └── Vulkan Device + Swapchain                          │
 // │                └── Command Buffers (GPU instructions)           │
 // │                      └── Synchronization (fences, semaphores)   │
 // └─────────────────────────────────────────────────────────────────┘
 //
 // FRAME FLOW:
-// 1. Acquire swapchain image (get next image to render to)
-// 2. Wait for previous frame using this sync slot
-// 3. Submit pre-recorded commands to GPU
-// 4. Present rendered image to screen
-// 5. Advance to next frame sync slot
+// 1. Bevy Update systems (ECS logic)
+// 2. Extract render data from ECS
+// 3. Acquire swapchain image
+// 4. Wait for previous frame
+// 5. Submit pre-recorded commands to GPU
+// 6. Present rendered image to screen
 //
 // =============================================================================
 
 mod backend;
+#[cfg(feature = "bevy")]
+mod bevy_integration;
 
 use anyhow::Result;
 use ash::vk;
@@ -46,7 +49,7 @@ use winit::{
 /// WHY 2? This allows CPU to prepare frame N+1 while GPU renders frame N.
 /// More frames = more latency but smoother frame pacing.
 /// Fewer frames = lower latency but potential CPU/GPU stalls.
-const MAX_FRAMES_IN_FLIGHT: usize = 2;
+pub const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 // =============================================================================
 // ENTRY POINT
@@ -55,16 +58,24 @@ const MAX_FRAMES_IN_FLIGHT: usize = 2;
 fn main() -> Result<()> {
     // Initialize logging - set RUST_LOG=debug for verbose output
     env_logger::init();
-    log::info!("Starting Vulkan renderer");
+    log::info!("Starting Vulkan renderer with Bevy integration");
 
-    // Create the event loop (handles window events, input, etc.)
-    let event_loop = EventLoop::new()?;
-    let mut app = App::new();
+    // OPTION 1: Run with Bevy (ECS integration)
+    #[cfg(feature = "bevy")]
+    {
+        let mut app = bevy_integration::create_bevy_app();
+        app.run();
+        Ok(())
+    }
     
-    // Run the application - this blocks until the window is closed
-    event_loop.run_app(&mut app)?;
-    
-    Ok(())
+    // OPTION 2: Run standalone (original implementation)
+    #[cfg(not(feature = "bevy"))]
+    {
+        let event_loop = EventLoop::new()?;
+        let mut app = App::new();
+        event_loop.run_app(&mut app)?;
+        Ok(())
+    }
 }
 
 // =============================================================================
@@ -75,7 +86,9 @@ fn main() -> Result<()> {
 /// 
 /// IMPORTANT: Field order matters for Drop! Resources must be destroyed
 /// in reverse order of creation to avoid use-after-free.
-struct App {
+/// 
+/// This struct is now pub so it can be used from bevy_integration module
+pub struct App {
     // ─────────────────────────────────────────────────────────────────────────
     // WINDOW & SURFACE
     // ─────────────────────────────────────────────────────────────────────────
@@ -113,9 +126,9 @@ struct App {
     // STATE FLAGS
     // ─────────────────────────────────────────────────────────────────────────
     /// Set to true when window is resized - triggers swapchain recreation
-    needs_resize: bool,
+    pub needs_resize: bool,
     /// Set to true when window is minimized (size = 0) - skip rendering
-    is_minimized: bool,
+    pub is_minimized: bool,
     
     // ─────────────────────────────────────────────────────────────────────────
     // FPS TRACKING
@@ -125,8 +138,14 @@ struct App {
     last_frame_time: Instant,
 }
 
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl App {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let now = Instant::now();
         Self {
             window: None,
@@ -184,11 +203,11 @@ impl App {
             {
                 match (display_handle, window_handle) {
                     (RawDisplayHandle::Windows(_), RawWindowHandle::Win32(handle)) => {
-                        let hinstance = handle.hinstance.map(|h| h.get() as isize).unwrap_or(0);
-                        let hwnd = handle.hwnd.get() as isize;
+                        let hinstance = handle.hinstance.map(|h| h.get()).unwrap_or(0) as *const std::ffi::c_void;
+                        let hwnd = handle.hwnd.get() as *const std::ffi::c_void;
                         let create_info = vk::Win32SurfaceCreateInfoKHR::builder()
-                            .hinstance(hinstance as *const std::ffi::c_void)
-                            .hwnd(hwnd as *const std::ffi::c_void);
+                            .hinstance(hinstance)
+                            .hwnd(hwnd);
                         let win32_surface_loader = ash::extensions::khr::Win32Surface::new(&entry, &device.instance);
                         win32_surface_loader.create_win32_surface(&create_info, None)?
                     }
@@ -467,6 +486,7 @@ impl App {
     /// Render a single frame.
     /// 
     /// This is the hot path - called every frame. Keep it lean!
+    /// Made public for Bevy integration.
     /// 
     /// FRAME TIMELINE:
     /// ┌──────────────────────────────────────────────────────────────────────┐
@@ -475,7 +495,7 @@ impl App {
     /// │  (GPU starts    │   (CPU waits   (GPU      (Display                  │
     /// │   acquiring)    │    if needed)   works)    shows)                   │
     /// └──────────────────────────────────────────────────────────────────────┘
-    fn render_frame(&mut self) -> Result<bool> {
+    pub fn render_frame(&mut self) -> Result<bool> {
         // Skip rendering if minimized
         if self.is_minimized {
             return Ok(false);
@@ -590,7 +610,7 @@ impl App {
     // FPS TRACKING
     // =========================================================================
     
-    fn update_fps(&mut self) {
+    pub fn update_fps(&mut self) {
         let now = Instant::now();
         let frame_time = now.duration_since(self.last_frame_time).as_secs_f32();
         self.last_frame_time = now;
@@ -699,13 +719,8 @@ impl ApplicationHandler for App {
                 use winit::keyboard::{KeyCode, PhysicalKey};
                 
                 if event.state.is_pressed() {
-                    if let PhysicalKey::Code(key) = event.physical_key {
-                        match key {
-                            KeyCode::Escape => {
-                                event_loop.exit();
-                            }
-                            _ => {}
-                        }
+                    if let PhysicalKey::Code(KeyCode::Escape) = event.physical_key {
+                        event_loop.exit();
                     }
                 }
             }

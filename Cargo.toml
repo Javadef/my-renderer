@@ -3,11 +3,21 @@ name = "my-renderer"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+bevy = ["dep:bevy"]
+
 [workspace]
 # Empty workspace table to keep this independent from Kajiya's workspace
 
 [dependencies]
-# Window and input
+# Bevy ECS and core (without default renderer) - OPTIONAL
+bevy = { version = "0.14", default-features = false, features = [
+    "bevy_winit",              # Window management
+    "bevy_render",             # Minimal render support (for window access)
+], optional = true }
+
+# Window and input (still needed for raw Vulkan)
 winit = "0.30"
 raw-window-handle = "0.6"
 
