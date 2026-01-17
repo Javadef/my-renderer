@@ -6,6 +6,9 @@
 pub mod device;
 pub mod swapchain;
 pub mod sync;
+pub mod shader;
+pub mod buffer;
+pub mod pipeline;
 
 pub use device::VulkanDevice;
 pub use swapchain::Swapchain;

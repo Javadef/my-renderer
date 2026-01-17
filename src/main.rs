@@ -45,6 +45,85 @@ use winit::{
 };
 
 // =============================================================================
+// VERTEX DATA & CUBE GEOMETRY
+// =============================================================================
+
+/// Vertex structure with position, normal, and color
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+struct Vertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+    color: [f32; 3],
+}
+
+/// Cube vertices with proper normals for lighting (24 vertices - 4 per face)
+/// Each face has its own vertices so normals are correct for flat shading
+const CUBE_VERTICES: &[Vertex] = &[
+    // Front face (Z+) - Red
+    Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [0.9, 0.2, 0.2] },
+    Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [0.9, 0.2, 0.2] },
+    Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [0.9, 0.2, 0.2] },
+    Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [0.9, 0.2, 0.2] },
+    // Back face (Z-) - Green
+    Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 0.9, 0.2] },
+    Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 0.9, 0.2] },
+    Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 0.9, 0.2] },
+    Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 0.9, 0.2] },
+    // Right face (X+) - Blue
+    Vertex { position: [ 0.5, -0.5,  0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 0.2, 0.9] },
+    Vertex { position: [ 0.5, -0.5, -0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 0.2, 0.9] },
+    Vertex { position: [ 0.5,  0.5, -0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 0.2, 0.9] },
+    Vertex { position: [ 0.5,  0.5,  0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 0.2, 0.9] },
+    // Left face (X-) - Yellow
+    Vertex { position: [-0.5, -0.5, -0.5], normal: [-1.0, 0.0, 0.0], color: [0.9, 0.9, 0.2] },
+    Vertex { position: [-0.5, -0.5,  0.5], normal: [-1.0, 0.0, 0.0], color: [0.9, 0.9, 0.2] },
+    Vertex { position: [-0.5,  0.5,  0.5], normal: [-1.0, 0.0, 0.0], color: [0.9, 0.9, 0.2] },
+    Vertex { position: [-0.5,  0.5, -0.5], normal: [-1.0, 0.0, 0.0], color: [0.9, 0.9, 0.2] },
+    // Top face (Y+) - Cyan
+    Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.9, 0.9] },
+    Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.9, 0.9] },
+    Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.9, 0.9] },
+    Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.9, 0.9] },
+    // Bottom face (Y-) - Magenta
+    Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color: [0.9, 0.2, 0.9] },
+    Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color: [0.9, 0.2, 0.9] },
+    Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color: [0.9, 0.2, 0.9] },
+    Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color: [0.9, 0.2, 0.9] },
+];
+
+/// Cube indices: 12 triangles (2 per face, 6 faces)
+const CUBE_INDICES: &[u16] = &[
+    0,  1,  2,   2,  3,  0,  // Front
+    4,  5,  6,   6,  7,  4,  // Back
+    8,  9,  10,  10, 11, 8,  // Right
+    12, 13, 14,  14, 15, 12, // Left
+    16, 17, 18,  18, 19, 16, // Top
+    20, 21, 22,  22, 23, 20, // Bottom
+];
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+/// Convert MVP and Model matrices to bytes for push constants
+fn matrices_to_bytes(mvp: &glam::Mat4, model: &glam::Mat4) -> [u8; 128] {
+    let mut bytes = [0u8; 128];
+    let mvp_cols = mvp.to_cols_array();
+    let model_cols = model.to_cols_array();
+    
+    for (i, &val) in mvp_cols.iter().enumerate() {
+        let val_bytes = val.to_ne_bytes();
+        bytes[i * 4..(i + 1) * 4].copy_from_slice(&val_bytes);
+    }
+    for (i, &val) in model_cols.iter().enumerate() {
+        let val_bytes = val.to_ne_bytes();
+        bytes[64 + i * 4..64 + (i + 1) * 4].copy_from_slice(&val_bytes);
+    }
+    bytes
+}
+
+// =============================================================================
 // ENTRY POINT
 // =============================================================================
 
@@ -135,6 +214,29 @@ pub struct App {
     swapchain: Option<Swapchain>,
     
     // ─────────────────────────────────────────────────────────────────────────
+    // RENDERING PIPELINE
+    // ─────────────────────────────────────────────────────────────────────────
+    render_pass: Option<vk::RenderPass>,
+    framebuffers: Vec<vk::Framebuffer>,
+    pipeline: Option<vk::Pipeline>,
+    pipeline_layout: Option<vk::PipelineLayout>,
+    
+    // ─────────────────────────────────────────────────────────────────────────
+    // DEPTH BUFFER
+    // ─────────────────────────────────────────────────────────────────────────
+    depth_image: Option<vk::Image>,
+    depth_image_memory: Option<vk::DeviceMemory>,
+    depth_image_view: Option<vk::ImageView>,
+    
+    // ─────────────────────────────────────────────────────────────────────────
+    // GEOMETRY BUFFERS
+    // ─────────────────────────────────────────────────────────────────────────
+    vertex_buffer: Option<vk::Buffer>,
+    vertex_buffer_memory: Option<vk::DeviceMemory>,
+    index_buffer: Option<vk::Buffer>,
+    index_buffer_memory: Option<vk::DeviceMemory>,
+    
+    // ─────────────────────────────────────────────────────────────────────────
     // COMMANDS
     // ─────────────────────────────────────────────────────────────────────────
     command_pool: Option<vk::CommandPool>,
@@ -161,6 +263,8 @@ pub struct App {
     pub needs_resize: bool,
     /// Set to true when window is minimized (size = 0) - skip rendering
     pub is_minimized: bool,
+    /// Set to true after focus regained - forces GPU sync before next frame
+    needs_sync: bool,
     
     // ─────────────────────────────────────────────────────────────────────────
     // FPS TRACKING
@@ -168,6 +272,11 @@ pub struct App {
     frame_count: u32,
     last_fps_update: Instant,
     last_frame_time: Instant,
+    
+    // ─────────────────────────────────────────────────────────────────────────
+    // ANIMATION
+    // ─────────────────────────────────────────────────────────────────────────
+    start_time: Instant,
 }
 
 impl App {
@@ -182,6 +291,17 @@ impl App {
             surface_loader: None,
             is_fullscreen,
             swapchain: None,
+            render_pass: None,
+            framebuffers: Vec::new(),
+            pipeline: None,
+            pipeline_layout: None,
+            depth_image: None,
+            depth_image_memory: None,
+            depth_image_view: None,
+            vertex_buffer: None,
+            vertex_buffer_memory: None,
+            index_buffer: None,
+            index_buffer_memory: None,
             command_pool: None,
             command_buffers: Vec::new(),
             frame_sync: Vec::new(),
@@ -189,9 +309,11 @@ impl App {
             wait_stages: [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT],
             needs_resize: false,
             is_minimized: false,
+            needs_sync: false,
             frame_count: 0,
             last_fps_update: now,
             last_frame_time: now,
+            start_time: now,
         }
     }
     
@@ -276,6 +398,11 @@ impl App {
         // STEP 3: Create swapchain and related resources
         // ─────────────────────────────────────────────────────────────────────
         self.create_swapchain_resources(&window)?;
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // STEP 3.5: Create rendering pipeline and geometry buffers
+        // ─────────────────────────────────────────────────────────────────────
+        self.create_rendering_resources()?;
         
         // ─────────────────────────────────────────────────────────────────────
         // STEP 4: Create synchronization primitives
@@ -371,17 +498,108 @@ impl App {
         
         let command_buffers = unsafe { device.device.allocate_command_buffers(&alloc_info)? };
         
-        // ─────────────────────────────────────────────────────────────────────
-        // Pre-record command buffers for each swapchain image
-        // ─────────────────────────────────────────────────────────────────────
-        self.record_command_buffers_with_config(&device.device, &swapchain, &command_buffers)?;
-        
-        log::info!("Created {} pre-recorded command buffers", swapchain_image_count);
-        
         self.swapchain = Some(swapchain);
         self.command_buffers = command_buffers;
         self.needs_resize = false;
         
+        Ok(())
+    }
+    
+    /// Create rendering pipeline, shaders, and geometry buffers
+    fn create_rendering_resources(&mut self) -> Result<()> {
+        let device = self.device.as_ref()
+            .context("Device not initialized")?;
+        let swapchain = self.swapchain.as_ref()
+            .context("Swapchain not initialized")?;
+        
+        log::info!("Creating rendering resources...");
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // Load shaders
+        // ─────────────────────────────────────────────────────────────────────
+        let vert_shader = load_shader!(device, "../shaders/cube.vert.spv")?;
+        let frag_shader = load_shader!(device, "../shaders/cube.frag.spv")?;
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // Create render pass
+        // ─────────────────────────────────────────────────────────────────────
+        let render_pass = backend::pipeline::create_render_pass(device, swapchain.format)?;
+        self.render_pass = Some(render_pass);
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // Create depth buffer
+        // ─────────────────────────────────────────────────────────────────────
+        let (depth_image, depth_image_memory, depth_image_view) = 
+            backend::buffer::create_depth_buffer(device, swapchain.extent)?;
+        self.depth_image = Some(depth_image);
+        self.depth_image_memory = Some(depth_image_memory);
+        self.depth_image_view = Some(depth_image_view);
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // Create framebuffers
+        // ─────────────────────────────────────────────────────────────────────
+        let framebuffers = backend::pipeline::create_framebuffers(
+            device,
+            &swapchain.image_views,
+            depth_image_view,
+            render_pass,
+            swapchain.extent,
+        )?;
+        self.framebuffers = framebuffers;
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // Create graphics pipeline
+        // ─────────────────────────────────────────────────────────────────────
+        let (pipeline, pipeline_layout) = backend::pipeline::create_graphics_pipeline(
+            device,
+            render_pass,
+            swapchain.extent,
+            vert_shader,
+            frag_shader,
+        )?;
+        
+        // Clean up shader modules (no longer needed after pipeline creation)
+        unsafe {
+            device.device.destroy_shader_module(vert_shader, None);
+            device.device.destroy_shader_module(frag_shader, None);
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // Create vertex buffer
+        // ─────────────────────────────────────────────────────────────────────
+        let (vertex_buffer, vertex_buffer_memory) = backend::buffer::create_buffer_with_data(
+            device,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            CUBE_VERTICES,
+        )?;
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // Create index buffer
+        // ─────────────────────────────────────────────────────────────────────
+        let (index_buffer, index_buffer_memory) = backend::buffer::create_buffer_with_data(
+            device,
+            vk::BufferUsageFlags::INDEX_BUFFER,
+            CUBE_INDICES,
+        )?;
+        
+        self.pipeline = Some(pipeline);
+        self.pipeline_layout = Some(pipeline_layout);
+        self.vertex_buffer = Some(vertex_buffer);
+        self.vertex_buffer_memory = Some(vertex_buffer_memory);
+        self.index_buffer = Some(index_buffer);
+        self.index_buffer_memory = Some(index_buffer_memory);
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // Now record command buffers with the rendering pipeline
+        // ─────────────────────────────────────────────────────────────────────
+        if let Some(swapchain) = &self.swapchain {
+            log::info!("Recording command buffers: {} buffers, {} framebuffers", 
+                self.command_buffers.len(), self.framebuffers.len());
+            self.record_command_buffers_with_config(&device.device, swapchain, &self.command_buffers)?;
+            log::info!("Command buffers recorded with rendering pipeline");
+        }
+        
+        log::info!("Rendering resources created successfully!");
         Ok(())
     }
     
@@ -391,9 +609,30 @@ impl App {
     /// When the window size changes, the old swapchain images are the wrong size.
     /// We must create a new swapchain with correctly sized images.
     fn recreate_swapchain(&mut self) -> Result<()> {
-        // Wait for GPU to finish all work before destroying resources
+        // Wait for GPU to finish ALL work before destroying resources
         if let Some(ref device) = self.device {
             device.wait_idle()?;
+        }
+        
+        // Destroy old framebuffers
+        if let Some(ref device) = self.device {
+            for &framebuffer in &self.framebuffers {
+                unsafe {
+                    device.device.destroy_framebuffer(framebuffer, None);
+                }
+            }
+            self.framebuffers.clear();
+            
+            // Destroy old depth buffer
+            if let Some(view) = self.depth_image_view.take() {
+                unsafe { device.device.destroy_image_view(view, None); }
+            }
+            if let Some(image) = self.depth_image.take() {
+                unsafe { device.device.destroy_image(image, None); }
+            }
+            if let Some(memory) = self.depth_image_memory.take() {
+                unsafe { device.device.free_memory(memory, None); }
+            }
         }
         
         // Clone the window Arc to avoid borrow conflict
@@ -401,6 +640,44 @@ impl App {
         if let Some(ref win) = window {
             self.create_swapchain_resources(win)?;
         }
+        
+        // Recreate depth buffer and framebuffers for new swapchain
+        let device = self.device.as_ref().context("Device missing")?;
+        let swapchain = self.swapchain.as_ref().context("Swapchain missing")?;
+        let render_pass = self.render_pass.context("Render pass missing")?;
+        
+        // Create new depth buffer
+        let (depth_image, depth_image_memory, depth_image_view) = 
+            backend::buffer::create_depth_buffer(device, swapchain.extent)?;
+        self.depth_image = Some(depth_image);
+        self.depth_image_memory = Some(depth_image_memory);
+        self.depth_image_view = Some(depth_image_view);
+        
+        self.framebuffers = backend::pipeline::create_framebuffers(
+            device,
+            &swapchain.image_views,
+            depth_image_view,
+            render_pass,
+            swapchain.extent,
+        )?;
+        log::info!("Recreated {} framebuffers", self.framebuffers.len());
+        
+        // Recreate synchronization primitives after swapchain recreation
+        // This ensures all fences start in signaled state and prevents
+        // "fence not yet completed" errors when resuming rendering
+        for sync in &self.frame_sync {
+            sync.destroy(&device.device);
+        }
+        self.frame_sync.clear();
+        
+        let max_frames = self.config.graphics.max_frames_in_flight;
+        for _ in 0..max_frames {
+            self.frame_sync.push(backend::sync::FrameSync::new(device)?);
+        }
+        log::info!("Recreated {} frame sync objects", self.frame_sync.len());
+        
+        // Reset current frame to 0 to ensure clean state
+        self.current_frame = 0;
         
         Ok(())
     }
@@ -411,114 +688,127 @@ impl App {
     
     /// Pre-record command buffers for all swapchain images.
     /// 
-    /// WHY PRE-RECORD?
-    /// Recording commands has CPU overhead. For static content (like clearing
-    /// the screen), we can record once and resubmit every frame.
-    /// 
-    /// WHEN YOU ADD DYNAMIC CONTENT:
-    /// You'll need to re-record every frame, or use secondary command buffers
-    /// for the dynamic parts.
+    /// Records commands to render the rotating cube with MVP transformation.
     fn record_command_buffers_with_config(
         &self,
         device: &ash::Device,
         swapchain: &Swapchain,
         command_buffers: &[vk::CommandBuffer],
     ) -> Result<()> {
-        // Clear color from config (RGBA, 0-1 range)
-        let color = self.config.graphics.clear_color;
-        let clear_color = vk::ClearColorValue {
-            float32: color,
-        };
+        let render_pass = self.render_pass.context("Render pass not initialized")?;
+        let pipeline = self.pipeline.context("Pipeline not initialized")?;
+        let pipeline_layout = self.pipeline_layout.context("Pipeline layout not initialized")?;
+        let vertex_buffer = self.vertex_buffer.context("Vertex buffer not initialized")?;
+        let index_buffer = self.index_buffer.context("Index buffer not initialized")?;
         
-        // Which parts of the image to affect (all of it)
-        let subresource_range = vk::ImageSubresourceRange {
-            aspect_mask: vk::ImageAspectFlags::COLOR,
-            base_mip_level: 0,
-            level_count: 1,
-            base_array_layer: 0,
-            layer_count: 1,
-        };
+        // Clear values: color and depth
+        let color = self.config.graphics.clear_color;
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: color,
+                },
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0, // Far plane
+                    stencil: 0,
+                },
+            },
+        ];
         
         for (i, &cmd) in command_buffers.iter().enumerate() {
-            let image = swapchain.images[i];
+            let framebuffer = self.framebuffers[i];
             
             unsafe {
-                // ─────────────────────────────────────────────────────────────
                 // Begin recording
-                // ─────────────────────────────────────────────────────────────
                 let begin_info = vk::CommandBufferBeginInfo::builder();
                 device.begin_command_buffer(cmd, &begin_info)?;
                 
-                // ─────────────────────────────────────────────────────────────
-                // IMAGE LAYOUT TRANSITION: UNDEFINED -> TRANSFER_DST
-                // ─────────────────────────────────────────────────────────────
-                // WHY? Images have "layouts" that optimize memory access patterns.
-                // We need TRANSFER_DST layout to use vkCmdClearColorImage.
-                let barrier_to_transfer = vk::ImageMemoryBarrier::builder()
-                    .src_access_mask(vk::AccessFlags::empty())
-                    .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                    .old_layout(vk::ImageLayout::UNDEFINED)  // Don't care about old contents
-                    .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                    .image(image)
-                    .subresource_range(subresource_range)
-                    .build();
+                // Begin render pass
+                let render_pass_info = vk::RenderPassBeginInfo::builder()
+                    .render_pass(render_pass)
+                    .framebuffer(framebuffer)
+                    .render_area(vk::Rect2D {
+                        offset: vk::Offset2D { x: 0, y: 0 },
+                        extent: swapchain.extent,
+                    })
+                    .clear_values(&clear_values);
                 
-                device.cmd_pipeline_barrier(
+                device.cmd_begin_render_pass(cmd, &render_pass_info, vk::SubpassContents::INLINE);
+                
+                // Bind pipeline
+                device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline);
+                
+                // Bind vertex buffer
+                device.cmd_bind_vertex_buffers(cmd, 0, &[vertex_buffer], &[0]);
+                
+                // Bind index buffer
+                device.cmd_bind_index_buffer(cmd, index_buffer, 0, vk::IndexType::UINT16);
+                
+                // Calculate matrices (animated)
+                let time = self.start_time.elapsed().as_secs_f32();
+                let (mvp, model) = self.calculate_matrices(time, swapchain.extent);
+                
+                // Push MVP and model matrices
+                let matrix_bytes = matrices_to_bytes(&mvp, &model);
+                device.cmd_push_constants(
                     cmd,
-                    vk::PipelineStageFlags::TOP_OF_PIPE,  // Wait for: nothing (start of pipeline)
-                    vk::PipelineStageFlags::TRANSFER,     // Block: transfer operations
-                    vk::DependencyFlags::empty(),
-                    &[],  // Memory barriers
-                    &[],  // Buffer barriers
-                    &[barrier_to_transfer],  // Image barriers
+                    pipeline_layout,
+                    vk::ShaderStageFlags::VERTEX,
+                    0,
+                    &matrix_bytes,
                 );
                 
-                // ─────────────────────────────────────────────────────────────
-                // CLEAR THE IMAGE
-                // ─────────────────────────────────────────────────────────────
-                device.cmd_clear_color_image(
+                // Draw indexed
+                device.cmd_draw_indexed(
                     cmd,
-                    image,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    &clear_color,
-                    &[subresource_range],
+                    CUBE_INDICES.len() as u32,
+                    1,  // instance count
+                    0,  // first index
+                    0,  // vertex offset
+                    0,  // first instance
                 );
                 
-                // ─────────────────────────────────────────────────────────────
-                // IMAGE LAYOUT TRANSITION: TRANSFER_DST -> PRESENT_SRC
-                // ─────────────────────────────────────────────────────────────
-                // WHY? To present the image, it must be in PRESENT_SRC layout.
-                let barrier_to_present = vk::ImageMemoryBarrier::builder()
-                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                    .dst_access_mask(vk::AccessFlags::empty())
-                    .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                    .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                    .image(image)
-                    .subresource_range(subresource_range)
-                    .build();
+                // End render pass
+                device.cmd_end_render_pass(cmd);
                 
-                device.cmd_pipeline_barrier(
-                    cmd,
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::PipelineStageFlags::BOTTOM_OF_PIPE,  // Block: nothing (end of pipeline)
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[barrier_to_present],
-                );
-                
-                // ─────────────────────────────────────────────────────────────
                 // End recording
-                // ─────────────────────────────────────────────────────────────
                 device.end_command_buffer(cmd)?;
             }
         }
         
         Ok(())
+    }
+    
+    /// Calculate Model-View-Projection and Model matrices for the cube
+    fn calculate_matrices(&self, time: f32, extent: vk::Extent2D) -> (glam::Mat4, glam::Mat4) {
+        use glam::{Mat4, Vec3};
+        
+        // Model matrix: rotate cube over time
+        let model = Mat4::from_rotation_y(time * 0.5)
+            * Mat4::from_rotation_x(time * 0.3);
+        
+        // View matrix: camera positioned at (0, 0, 3) looking at origin
+        let view = Mat4::look_at_rh(
+            Vec3::new(0.0, 0.0, 3.0),  // eye
+            Vec3::ZERO,                 // center
+            Vec3::Y,                    // up
+        );
+        
+        // Projection matrix: perspective with 45° FOV
+        let aspect = extent.width as f32 / extent.height as f32;
+        let mut proj = Mat4::perspective_rh(
+            45.0_f32.to_radians(),
+            aspect,
+            0.1,   // near plane
+            100.0, // far plane
+        );
+        
+        // Vulkan has Y pointing down in clip space, flip it
+        proj.y_axis.y *= -1.0;
+        
+        (proj * view * model, model)
     }
     
     // =========================================================================
@@ -541,6 +831,28 @@ impl App {
         // Skip rendering if minimized
         if self.is_minimized {
             return Ok(false);
+        }
+        
+        // If we need a full GPU sync (e.g., after focus regain or pause),
+        // wait for all GPU work to complete and reset all fences
+        if self.needs_sync {
+            if let Some(ref device) = self.device {
+                device.wait_idle()?;
+                // After wait_idle, all work is done, so all fences should be signaled
+                // But to be safe, recreate them
+                for sync in &self.frame_sync {
+                    sync.destroy(&device.device);
+                }
+                self.frame_sync.clear();
+                
+                let max_frames = self.config.graphics.max_frames_in_flight;
+                for _ in 0..max_frames {
+                    self.frame_sync.push(backend::sync::FrameSync::new(device)?);
+                }
+                self.current_frame = 0;
+            }
+            self.needs_sync = false;
+            log::info!("GPU sync completed, fences reset");
         }
         
         // Handle resize if needed
@@ -591,14 +903,47 @@ impl App {
         // ─────────────────────────────────────────────────────────────────────
         // WHY WAIT HERE? We have MAX_FRAMES_IN_FLIGHT sync slots.
         // We must wait for the frame that used this slot to complete.
+        // 
+        // IMPORTANT: Always wait first, then reset. wait_for_fences returns
+        // immediately if the fence is already signaled. This is the canonical
+        // Vulkan synchronization pattern.
         unsafe {
-            device.device.wait_for_fences(
+            // Wait for fence - returns immediately if already signaled
+            // Use a reasonable timeout to prevent infinite hangs
+            let wait_result = device.device.wait_for_fences(
                 &[sync.in_flight_fence],
-                true,   // Wait for all fences
-                u64::MAX,  // Timeout
-            )?;
-            device.device.reset_fences(&[sync.in_flight_fence])?;
+                true,
+                5_000_000_000, // 5 second timeout
+            );
+            
+            match wait_result {
+                Ok(_) => {
+                    // Fence is signaled, safe to reset
+                    device.device.reset_fences(&[sync.in_flight_fence])?;
+                }
+                Err(vk::Result::TIMEOUT) => {
+                    // Timeout - something is very wrong, trigger recreation
+                    log::warn!("Fence wait timeout - triggering swapchain recreation");
+                    self.needs_resize = true;
+                    return Ok(false);
+                }
+                Err(vk::Result::NOT_READY) => {
+                    // Fence not ready (shouldn't happen with wait, but handle it)
+                    // Skip this frame and try again
+                    return Ok(false);
+                }
+                Err(e) => {
+                    // Other error - log and skip frame
+                    log::error!("Fence wait error: {:?}", e);
+                    return Ok(false);
+                }
+            }
         }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // STEP 2.5: Re-record command buffer with updated time for animation
+        // ─────────────────────────────────────────────────────────────────────
+        self.record_command_buffers_with_config(&device.device, swapchain, &self.command_buffers)?;
         
         // ─────────────────────────────────────────────────────────────────────
         // STEP 3: Submit command buffer
@@ -825,6 +1170,18 @@ impl ApplicationHandler for App {
                 }
             }
             
+            // ─────────────────────────────────────────────────────────────────
+            // FOCUS CHANGE
+            // ─────────────────────────────────────────────────────────────────
+            WindowEvent::Focused(focused) => {
+                if focused {
+                    // Window regained focus - might need to sync GPU state
+                    // This helps prevent fence errors after the window was in background
+                    log::debug!("Window focused, requesting GPU sync");
+                    self.needs_sync = true;
+                }
+            }
+            
             _ => {}
         }
     }
@@ -863,14 +1220,57 @@ impl Drop for App {
                     device.device.destroy_command_pool(pool, None);
                 }
                 
-                // 3. Swapchain is dropped automatically
+                // 3. Geometry buffers
+                if let Some(buffer) = self.index_buffer {
+                    device.device.destroy_buffer(buffer, None);
+                }
+                if let Some(memory) = self.index_buffer_memory {
+                    device.device.free_memory(memory, None);
+                }
+                if let Some(buffer) = self.vertex_buffer {
+                    device.device.destroy_buffer(buffer, None);
+                }
+                if let Some(memory) = self.vertex_buffer_memory {
+                    device.device.free_memory(memory, None);
+                }
                 
-                // 4. Surface
+                // 4. Pipeline
+                if let Some(pipeline) = self.pipeline {
+                    device.device.destroy_pipeline(pipeline, None);
+                }
+                if let Some(layout) = self.pipeline_layout {
+                    device.device.destroy_pipeline_layout(layout, None);
+                }
+                
+                // 5. Framebuffers
+                for &framebuffer in &self.framebuffers {
+                    device.device.destroy_framebuffer(framebuffer, None);
+                }
+                
+                // 5.5. Depth buffer
+                if let Some(view) = self.depth_image_view {
+                    device.device.destroy_image_view(view, None);
+                }
+                if let Some(image) = self.depth_image {
+                    device.device.destroy_image(image, None);
+                }
+                if let Some(memory) = self.depth_image_memory {
+                    device.device.free_memory(memory, None);
+                }
+                
+                // 6. Render pass
+                if let Some(render_pass) = self.render_pass {
+                    device.device.destroy_render_pass(render_pass, None);
+                }
+                
+                // 7. Swapchain is dropped automatically
+                
+                // 8. Surface
                 if let (Some(surface), Some(ref loader)) = (self.surface, &self.surface_loader) {
                     loader.destroy_surface(surface, None);
                 }
                 
-                // 5. Device is dropped automatically (Arc)
+                // 9. Device is dropped automatically (Arc)
             }
         }
         
