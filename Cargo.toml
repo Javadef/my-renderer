@@ -1,0 +1,39 @@
+[package]
+name = "my-renderer"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+# Empty workspace table to keep this independent from Kajiya's workspace
+
+[dependencies]
+# Window and input
+winit = "0.30"
+raw-window-handle = "0.6"
+
+# Math (same as Kajiya uses)
+glam = { version = "0.29", features = ["bytemuck"] }
+
+# Vulkan - Native API for maximum performance
+ash = "0.37"
+ash-window = "0.12"
+gpu-allocator = { version = "0.26", features = ["vulkan"] }
+
+# Utilities
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
+parking_lot = "0.12"  # Faster mutexes than std
+
+# Optional: profiling
+# puffin = "0.19"  # Uncomment when ready to profile
+
+[profile.dev]
+opt-level = 2  # Faster debug builds, still debuggable
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"  # Smaller binary, faster
+strip = true     # Remove debug symbols
