@@ -1,0 +1,51 @@
+# =============================================================================
+# VULKAN RENDERER CONFIGURATION
+# =============================================================================
+# Edit this file to customize renderer behavior without recompiling.
+# Changes require app restart (hot-reload coming in Phase 2 for shaders only).
+
+[window]
+# Window title
+title = "Vulkan Renderer"
+
+# Window dimensions (pixels)
+width = 1280
+height = 720
+
+# Start in fullscreen mode
+fullscreen = false
+
+[graphics]
+# Present mode priority (first available is used)
+# Options: "immediate", "mailbox", "fifo", "fifo_relaxed"
+# - immediate: No VSync, lowest latency, may tear
+# - mailbox: No VSync, low latency, no tearing (recommended for games)
+# - fifo: VSync, higher latency, no tearing (recommended for power saving)
+# - fifo_relaxed: VSync with late frame allowance
+present_mode = "immediate"
+
+# Clear color (RGBA, 0.0-1.0 range)
+clear_color = [0.1, 0.2, 0.8, 1.0]
+
+# Maximum frames in flight (1-3 recommended)
+# Higher = smoother but more latency
+# Lower = less latency but potential stalls
+max_frames_in_flight = 2
+
+[debug]
+# Enable Vulkan validation layers (requires Vulkan SDK)
+# Automatically disabled in release builds
+validation_layers = true
+
+# Log validation errors to file
+log_to_file = true
+log_file = "vulkan_debug.log"
+
+# Show FPS in window title
+show_fps = true
+
+[controls]
+# Keyboard shortcuts
+fullscreen_key = "F11"
+screenshot_key = "F12"
+quit_key = "Escape"

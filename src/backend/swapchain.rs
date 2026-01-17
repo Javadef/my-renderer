@@ -13,8 +13,17 @@ pub struct Swapchain {
     pub swapchain_loader: ash::extensions::khr::Swapchain,
     pub images: Vec<vk::Image>,
     pub image_views: Vec<vk::ImageView>,
+    
+    /// Surface format (color space, pixel format)
+    /// Used in: Phase 2 for render pass creation, framebuffer setup
+    #[allow(dead_code)]
     pub format: vk::Format,
+    
+    /// Swapchain dimensions for viewport/scissor setup
+    /// Used in: Phase 2 for graphics pipeline, dynamic viewport
+    #[allow(dead_code)]
     pub extent: vk::Extent2D,
+    
     device: Arc<VulkanDevice>,
 }
 

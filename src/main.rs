@@ -25,40 +25,42 @@
 // =============================================================================
 
 mod backend;
+mod config;
 #[cfg(feature = "bevy")]
 mod bevy_integration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ash::vk;
 use backend::{VulkanDevice, Swapchain};
+use config::Config;
 use std::sync::Arc;
 use std::time::Instant;
+use std::fs::OpenOptions;
+use std::io::Write;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop},
-    window::{Window, WindowAttributes},
+    window::{Window, WindowAttributes, Fullscreen},
 };
-
-// =============================================================================
-// CONSTANTS
-// =============================================================================
-
-/// Number of frames that can be "in flight" simultaneously.
-/// 
-/// WHY 2? This allows CPU to prepare frame N+1 while GPU renders frame N.
-/// More frames = more latency but smoother frame pacing.
-/// Fewer frames = lower latency but potential CPU/GPU stalls.
-pub const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 // =============================================================================
 // ENTRY POINT
 // =============================================================================
 
 fn main() -> Result<()> {
-    // Initialize logging - set RUST_LOG=debug for verbose output
-    env_logger::init();
-    log::info!("Starting Vulkan renderer with Bevy integration");
+    // Load configuration from config.toml
+    let config = Config::load();
+    
+    // Initialize logging
+    init_logging(&config);
+    log::info!("Starting Vulkan renderer");
+    log::info!("Window: {}x{} ({})", 
+        config.window.width, 
+        config.window.height,
+        if config.window.fullscreen { "fullscreen" } else { "windowed" }
+    );
+    log::info!("Present mode: {}", config.graphics.present_mode);
 
     // OPTION 1: Run with Bevy (ECS integration)
     #[cfg(feature = "bevy")]
@@ -72,9 +74,33 @@ fn main() -> Result<()> {
     #[cfg(not(feature = "bevy"))]
     {
         let event_loop = EventLoop::new()?;
-        let mut app = App::new();
+        let mut app = App::new(config);
         event_loop.run_app(&mut app)?;
         Ok(())
+    }
+}
+
+/// Initialize logging with optional file output for validation errors
+fn init_logging(config: &Config) {
+    use env_logger::Builder;
+    use log::LevelFilter;
+    
+    let mut builder = Builder::from_default_env();
+    builder.filter_level(LevelFilter::Info);
+    builder.init();
+    
+    // Create/clear log file if enabled
+    if config.debug.log_to_file {
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&config.debug.log_file)
+        {
+            let _ = writeln!(file, "=== Vulkan Renderer Log ===");
+            let _ = writeln!(file, "Started: {:?}", std::time::SystemTime::now());
+            let _ = writeln!(file);
+        }
     }
 }
 
@@ -90,11 +116,17 @@ fn main() -> Result<()> {
 /// This struct is now pub so it can be used from bevy_integration module
 pub struct App {
     // ─────────────────────────────────────────────────────────────────────────
+    // CONFIGURATION
+    // ─────────────────────────────────────────────────────────────────────────
+    config: Config,
+    
+    // ─────────────────────────────────────────────────────────────────────────
     // WINDOW & SURFACE
     // ─────────────────────────────────────────────────────────────────────────
     window: Option<Arc<Window>>,
     surface: Option<vk::SurfaceKHR>,
     surface_loader: Option<ash::extensions::khr::Surface>,
+    is_fullscreen: bool,
     
     // ─────────────────────────────────────────────────────────────────────────
     // VULKAN CORE
@@ -138,20 +170,17 @@ pub struct App {
     last_frame_time: Instant,
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl App {
-    pub fn new() -> Self {
+    pub fn new(config: Config) -> Self {
+        let is_fullscreen = config.window.fullscreen;
         let now = Instant::now();
         Self {
+            config,
             window: None,
             device: None,
             surface: None,
             surface_loader: None,
+            is_fullscreen,
             swapchain: None,
             command_pool: None,
             command_buffers: Vec::new(),
@@ -184,9 +213,9 @@ impl App {
         // ─────────────────────────────────────────────────────────────────────
         // STEP 1: Create Vulkan device
         // ─────────────────────────────────────────────────────────────────────
-        // Enable validation layers in debug builds for error checking
-        let enable_validation = cfg!(debug_assertions);
-        let device = VulkanDevice::new("Vulkan Renderer", enable_validation)?;
+        // Enable validation layers based on config (and debug build)
+        let enable_validation = cfg!(debug_assertions) && self.config.debug.validation_layers;
+        let device = VulkanDevice::new(&self.config.window.title, enable_validation)?;
         
         // ─────────────────────────────────────────────────────────────────────
         // STEP 2: Create surface (platform-specific window connection)
@@ -196,8 +225,12 @@ impl App {
         
         let surface = unsafe {
             use raw_window_handle::{HasWindowHandle, HasDisplayHandle, RawWindowHandle, RawDisplayHandle};
-            let window_handle = window.window_handle().unwrap().as_raw();
-            let display_handle = window.display_handle().unwrap().as_raw();
+            let window_handle = window.window_handle()
+                .context("Failed to get window handle")?
+                .as_raw();
+            let display_handle = window.display_handle()
+                .context("Failed to get display handle")?
+                .as_raw();
             
             #[cfg(target_os = "windows")]
             {
@@ -248,7 +281,8 @@ impl App {
         // STEP 4: Create synchronization primitives
         // ─────────────────────────────────────────────────────────────────────
         // These don't need to be recreated on resize
-        let frame_sync = (0..MAX_FRAMES_IN_FLIGHT)
+        let max_frames = self.config.graphics.max_frames_in_flight;
+        let frame_sync = (0..max_frames)
             .map(|_| backend::sync::FrameSync::new(&device))
             .collect::<Result<Vec<_>>>()?;
         
@@ -263,9 +297,12 @@ impl App {
     /// This is separated from init_vulkan because it needs to be called
     /// again when the window is resized.
     fn create_swapchain_resources(&mut self, window: &Window) -> Result<()> {
-        let device = self.device.as_ref().unwrap();
-        let surface = self.surface.unwrap();
-        let surface_loader = self.surface_loader.as_ref().unwrap();
+        let device = self.device.as_ref()
+            .context("Device not initialized")?;
+        let surface = self.surface
+            .context("Surface not initialized")?;
+        let surface_loader = self.surface_loader.as_ref()
+            .context("Surface loader not initialized")?;
         
         // Get current window size
         let size = window.inner_size();
@@ -314,10 +351,13 @@ impl App {
         // Allocate command buffers (one per swapchain image)
         // ─────────────────────────────────────────────────────────────────────
         // Free old command buffers if they exist
+        let command_pool = self.command_pool
+            .context("Command pool not initialized")?;
+        
         if !self.command_buffers.is_empty() {
             unsafe {
                 device.device.free_command_buffers(
-                    self.command_pool.unwrap(),
+                    command_pool,
                     &self.command_buffers,
                 );
             }
@@ -325,7 +365,7 @@ impl App {
         
         let swapchain_image_count = swapchain.images.len() as u32;
         let alloc_info = vk::CommandBufferAllocateInfo::builder()
-            .command_pool(self.command_pool.unwrap())
+            .command_pool(command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(swapchain_image_count);
         
@@ -334,7 +374,7 @@ impl App {
         // ─────────────────────────────────────────────────────────────────────
         // Pre-record command buffers for each swapchain image
         // ─────────────────────────────────────────────────────────────────────
-        Self::record_command_buffers(&device.device, &swapchain, &command_buffers)?;
+        self.record_command_buffers_with_config(&device.device, &swapchain, &command_buffers)?;
         
         log::info!("Created {} pre-recorded command buffers", swapchain_image_count);
         
@@ -378,14 +418,16 @@ impl App {
     /// WHEN YOU ADD DYNAMIC CONTENT:
     /// You'll need to re-record every frame, or use secondary command buffers
     /// for the dynamic parts.
-    fn record_command_buffers(
+    fn record_command_buffers_with_config(
+        &self,
         device: &ash::Device,
         swapchain: &Swapchain,
         command_buffers: &[vk::CommandBuffer],
     ) -> Result<()> {
-        // Clear color (RGBA, 0-1 range)
+        // Clear color from config (RGBA, 0-1 range)
+        let color = self.config.graphics.clear_color;
         let clear_color = vk::ClearColorValue {
-            float32: [0.1, 0.2, 0.8, 1.0], // Nice blue color
+            float32: color,
         };
         
         // Which parts of the image to affect (all of it)
@@ -509,8 +551,11 @@ impl App {
             }
         }
         
-        let device = self.device.as_ref().unwrap();
-        let swapchain = self.swapchain.as_ref().unwrap();
+        // Get required resources (these should always exist after init)
+        let device = self.device.as_ref()
+            .context("Device not initialized")?;
+        let swapchain = self.swapchain.as_ref()
+            .context("Swapchain not initialized")?;
         let sync = &self.frame_sync[self.current_frame];
         
         // ─────────────────────────────────────────────────────────────────────
@@ -601,9 +646,31 @@ impl App {
         // ─────────────────────────────────────────────────────────────────────
         // STEP 5: Advance to next frame
         // ─────────────────────────────────────────────────────────────────────
-        self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+        self.current_frame = (self.current_frame + 1) % self.config.graphics.max_frames_in_flight;
         
         Ok(true)
+    }
+    
+    // =========================================================================
+    // FULLSCREEN TOGGLE
+    // =========================================================================
+    
+    fn toggle_fullscreen(&mut self) {
+        if let Some(ref window) = self.window {
+            self.is_fullscreen = !self.is_fullscreen;
+            
+            if self.is_fullscreen {
+                // Enter fullscreen (use current monitor)
+                window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+                log::info!("Entered fullscreen mode");
+            } else {
+                // Exit fullscreen
+                window.set_fullscreen(None);
+                log::info!("Exited fullscreen mode");
+            }
+            
+            self.needs_resize = true;
+        }
     }
     
     // =========================================================================
@@ -611,6 +678,10 @@ impl App {
     // =========================================================================
     
     pub fn update_fps(&mut self) {
+        if !self.config.debug.show_fps {
+            return;
+        }
+        
         let now = Instant::now();
         let frame_time = now.duration_since(self.last_frame_time).as_secs_f32();
         self.last_frame_time = now;
@@ -622,10 +693,13 @@ impl App {
             let fps = self.frame_count as f32 / elapsed;
             
             if let Some(ref window) = self.window {
-                let _ = window.set_title(&format!(
-                    "Vulkan - {:.0} FPS ({:.2}ms)", 
-                    fps, 
-                    frame_time * 1000.0
+                let mode = if self.is_fullscreen { "fullscreen" } else { "windowed" };
+                window.set_title(&format!(
+                    "{} - {:.0} FPS ({:.2}ms) [{}]",
+                    self.config.window.title,
+                    fps,
+                    frame_time * 1000.0,
+                    mode
                 ));
             }
             
@@ -646,12 +720,27 @@ impl ApplicationHandler for App {
             return;
         }
         
-        // Create window
-        let window_attributes = WindowAttributes::default()
-            .with_title("Vulkan Renderer")
-            .with_inner_size(winit::dpi::PhysicalSize::new(1280, 720));
+        // Create window with settings from config
+        let mut window_attributes = WindowAttributes::default()
+            .with_title(&self.config.window.title)
+            .with_inner_size(winit::dpi::PhysicalSize::new(
+                self.config.window.width,
+                self.config.window.height,
+            ));
         
-        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+        // Set fullscreen if configured
+        if self.config.window.fullscreen {
+            window_attributes = window_attributes.with_fullscreen(Some(Fullscreen::Borderless(None)));
+        }
+        
+        let window = match event_loop.create_window(window_attributes) {
+            Ok(w) => Arc::new(w),
+            Err(e) => {
+                log::error!("Failed to create window: {:?}", e);
+                event_loop.exit();
+                return;
+            }
+        };
         
         // Initialize Vulkan
         if let Err(e) = self.init_vulkan(window.clone()) {
@@ -713,14 +802,25 @@ impl ApplicationHandler for App {
             }
             
             // ─────────────────────────────────────────────────────────────────
-            // KEYBOARD INPUT (for future use)
+            // KEYBOARD INPUT
             // ─────────────────────────────────────────────────────────────────
             WindowEvent::KeyboardInput { event, .. } => {
                 use winit::keyboard::{KeyCode, PhysicalKey};
                 
                 if event.state.is_pressed() {
-                    if let PhysicalKey::Code(KeyCode::Escape) = event.physical_key {
-                        event_loop.exit();
+                    if let PhysicalKey::Code(key) = event.physical_key {
+                        match key {
+                            // ESC - Quit application
+                            KeyCode::Escape => {
+                                log::info!("ESC pressed, exiting...");
+                                event_loop.exit();
+                            }
+                            // F11 - Toggle fullscreen
+                            KeyCode::F11 => {
+                                self.toggle_fullscreen();
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }

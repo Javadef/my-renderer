@@ -28,7 +28,12 @@ const REQUIRED_DEVICE_FEATURES: vk::PhysicalDeviceFeatures = vk::PhysicalDeviceF
 /// Vulkan device wrapper with automatic cleanup
 pub struct VulkanDevice {
     // Vulkan handles (order matters for drop!)
+    
+    /// Memory allocator for vertex/index/uniform buffers
+    /// Used in: Phase 2 (triangle), Phase 3 (3D models), Phase 4 (textures)
+    #[allow(dead_code)]
     pub allocator: gpu_allocator::vulkan::Allocator,
+    
     pub device: ash::Device,
     pub physical_device: vk::PhysicalDevice,
     pub instance: ash::Instance,
@@ -41,8 +46,14 @@ pub struct VulkanDevice {
     // Debug utils (if validation enabled)
     debug_utils: Option<(ash::extensions::ext::DebugUtils, vk::DebugUtilsMessengerEXT)>,
     
-    // Device properties (cached for performance)
+    /// GPU properties (name, limits, etc.)
+    /// Used in: Phase 2+ for capability queries and optimization
+    #[allow(dead_code)]
     pub properties: vk::PhysicalDeviceProperties,
+    
+    /// Memory heap info for optimal allocation placement
+    /// Used in: Phase 2+ for memory type selection
+    #[allow(dead_code)]
     pub memory_properties: vk::PhysicalDeviceMemoryProperties,
 }
 
